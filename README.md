@@ -127,8 +127,8 @@ python phylomlst.py \
     -s st_to_ic.tsv \
     -o results.tsv \
     -r ic_report.tsv \
-    -l 2 \
-    -n 1 \
+    -l 1 \
+    -n 2 \
     -x
 ```
 
