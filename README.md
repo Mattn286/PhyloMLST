@@ -140,7 +140,7 @@ The primary output (`--output`) is a tab-separated file with the original MLST d
 
 | Column | Description |
 |---|---|
-| `CC` | Clonal complex ID (integer, ranked by size) |
+| `CC` | Clonal complex ID; named after the founder ST if the CC contains an isolate with a founder ST, otherwise named after the most common numeric ST among member isolates |
 | `Assigned IC` | IC assignment based on founder ST and CC membership |
 | `Corrected IC` | IC assignment after phylogenetic correction (only present if `--tree` is provided) |
 
