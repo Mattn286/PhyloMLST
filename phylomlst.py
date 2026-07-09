@@ -34,6 +34,8 @@ def main(args):
     if args.mask_non_ST is True:
         df = mask_non_ST(df)
     
+    df = rename_CC(df, ST_column, founder_ST_to_IC_dict)
+    
     print_output(df)
     df.to_csv(args.output, sep="\t", index=True, index_label='Genome')
     if args.report is not None:
@@ -176,7 +178,7 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
     def is_valid_st(st):
         return pd.notna(st) and str(st).isdigit()
 
-    # Isolates explicitly assigned Not IC — these are what make a subclade unclean
+    # Isolates explicitly assigned Not IC, which make a subclade "unclean"
     not_ic_isolates = set(df[df[IC_column] == not_IC_value].index.astype(str))
 
     for ic in df[IC_column].unique():
@@ -194,7 +196,7 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
         # A clade is unclean if it contains more than the threshold Not IC isolates
         non_ic_in_mrca = mrca_leaves & not_ic_isolates
         if len(non_ic_in_mrca) <= not_ic_threshold:
-            # Clean MRCA — confirm all valid STs in this IC
+            # Clean MRCA, confirm all valid STs in this IC
             for st in df.loc[df[IC_column] == ic, ST_column].unique():
                 if is_valid_st(st):
                     st_to_corrected_ic[st] = ic
@@ -232,6 +234,28 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
     # Map final ST->IC assignments back to all isolates
     df["Corrected IC"] = df[ST_column].map(st_to_corrected_ic).fillna(not_IC_value)
 
+    return df
+
+def rename_CC(df, ST_column, founder_ST_to_IC_dict, IC_column="Assigned IC", not_IC_value="Not IC"):
+    cc_to_new_name = {}
+    for cc_id, grp in df.groupby("CC"):
+
+        # Check if any isolate in this CC has a founder ST
+        founder_sts_in_cc = [st for st in grp[ST_column] if st in founder_ST_to_IC_dict]
+
+        if founder_sts_in_cc:
+            # All founder STs in this CC should map to the same IC
+            ics_from_founders = {founder_ST_to_IC_dict[st] for st in founder_sts_in_cc}
+            assert len(ics_from_founders) == 1, \
+                f"CC {cc_id} contains founder STs mapping to multiple ICs:\n {ics_from_founders}."
+            # Name after the founder ST
+            cc_to_new_name[cc_id] = founder_sts_in_cc[0]
+        else:
+            # No founder ST present, name after the most common numeric ST
+            numeric_sts = grp[ST_column][grp[ST_column].apply(lambda x: str(x).isdigit())]
+            cc_to_new_name[cc_id] = int(numeric_sts.mode()[0]) if not numeric_sts.empty else None
+
+    df["CC"] = df["CC"].map(cc_to_new_name)
     return df
 
 def print_output(df):
