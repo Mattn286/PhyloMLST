@@ -138,19 +138,20 @@ def assign_IC(df, founder_ST_to_IC_dict, baseline_IC_to_ST_dict, ST_column, IC_c
     CC_to_IC_dict = {}
     for _, row in df.iterrows():
         ST = row[ST_column]
-        if not (CC_to_IC_dict.get(row["CC"]) in founder_ST_to_IC_dict.values()): # If CC has not already been assigned an IC
-            CC_to_IC_dict[row["CC"]] = founder_ST_to_IC_dict.get(ST, not_IC_value) # Assign CC to IC correponding to founder ST
+        if not (CC_to_IC_dict.get(row["CC"]) in founder_ST_to_IC_dict.values()):
+            CC_to_IC_dict[row["CC"]] = founder_ST_to_IC_dict.get(ST, not_IC_value)
     df[IC_column] = df["CC"].map(CC_to_IC_dict)
     
-    for index, row in df.iterrows(): 
-        try:
-            ST = int(row[ST_column])
-        except:
-            continue
-        for IC, ST_lst in baseline_IC_to_ST_dict.items():
-            if ST in ST_lst:
-                df.at[index, IC_column] = IC
-                break
+    if baseline_IC_to_ST_dict is not None:
+        for index, row in df.iterrows(): 
+            try:
+                ST = int(row[ST_column])
+            except:
+                continue
+            for IC, ST_lst in baseline_IC_to_ST_dict.items():
+                if ST in ST_lst:
+                    df.at[index, IC_column] = IC
+                    break
     
     return df
 
@@ -178,7 +179,7 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
     def is_valid_st(st):
         return pd.notna(st) and str(st).isdigit()
 
-    # Isolates explicitly assigned Not IC, which make a subclade "unclean"
+    # Isolates explicitly assigned Not IC — these are what make a subclade unclean
     not_ic_isolates = set(df[df[IC_column] == not_IC_value].index.astype(str))
 
     for ic in df[IC_column].unique():
@@ -193,10 +194,9 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
         mrca = tree.common_ancestor(ic_isolates)
         mrca_leaves = {c.name for c in mrca.get_terminals()}
 
-        # A clade is unclean if it contains more than the threshold Not IC isolates
         non_ic_in_mrca = mrca_leaves & not_ic_isolates
         if len(non_ic_in_mrca) <= not_ic_threshold:
-            # Clean MRCA, confirm all valid STs in this IC
+            # Clean MRCA — confirm all valid STs in this IC
             for st in df.loc[df[IC_column] == ic, ST_column].unique():
                 if is_valid_st(st):
                     st_to_corrected_ic[st] = ic
@@ -213,14 +213,27 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
             if not clade_ic:
                 return
 
-            if len(clade_non_ic) <= not_ic_threshold:
-                # Clean subclade — rescue valid STs if a founder ST is present
-                sts_in_clade = {
-                    st for st in df.loc[df.index.isin(clade_ic), ST_column].unique()
-                    if is_valid_st(st)
-                }
+            # Get valid STs present in this clade's IC isolates
+            sts_in_clade = {
+                st for st in df.loc[df.index.isin(clade_ic), ST_column].unique()
+                if is_valid_st(st)
+            }
+
+            # Determine if subtree contains more than one founder ST
+            competing_founder = any(
+                founder_ST_to_IC_dict.get(st) not in (ic, None)
+                for st in sts_in_clade
+            )
+            
+            # Unclean if: too many Not IC isolates, OR a competing founder ST is present
+            if len(clade_non_ic) <= not_ic_threshold and not competing_founder:
+                # Clean subclade — rescue if the correct founder ST is present
                 if any(founder_ST_to_IC_dict.get(st) == ic for st in sts_in_clade):
-                    rescued_sts.update(sts_in_clade)
+                    # Only rescue STs that belong to this IC or are not founders
+                    rescued_sts.update(
+                        st for st in sts_in_clade
+                        if founder_ST_to_IC_dict.get(st, ic) == ic
+                    )
                 return
 
             for child in clade.clades:
@@ -244,14 +257,14 @@ def rename_CC(df, ST_column, founder_ST_to_IC_dict, IC_column="Assigned IC", not
         founder_sts_in_cc = [st for st in grp[ST_column] if st in founder_ST_to_IC_dict]
 
         if founder_sts_in_cc:
-            # All founder STs in this CC should map to the same IC
+            # Sanity check — all founder STs in this CC should map to the same IC
             ics_from_founders = {founder_ST_to_IC_dict[st] for st in founder_sts_in_cc}
             assert len(ics_from_founders) == 1, \
                 f"CC {cc_id} contains founder STs mapping to multiple ICs:\n {ics_from_founders}."
             # Name after the founder ST
             cc_to_new_name[cc_id] = founder_sts_in_cc[0]
         else:
-            # No founder ST present, name after the most common numeric ST
+            # No founder ST present — name after the most common numeric ST
             numeric_sts = grp[ST_column][grp[ST_column].apply(lambda x: str(x).isdigit())]
             cc_to_new_name[cc_id] = int(numeric_sts.mode()[0]) if not numeric_sts.empty else None
 
