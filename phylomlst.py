@@ -194,6 +194,7 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
         mrca = tree.common_ancestor(ic_isolates)
         mrca_leaves = {c.name for c in mrca.get_terminals()}
 
+        # A clade is unclean if it contains more than the threshold Not IC isolates
         non_ic_in_mrca = mrca_leaves & not_ic_isolates
         if len(non_ic_in_mrca) <= not_ic_threshold:
             # Clean MRCA — confirm all valid STs in this IC
@@ -219,17 +220,17 @@ def correct_IC_by_phylogeny_func(df, tree, founder_ST_to_IC_dict, ST_column,
                 if is_valid_st(st)
             }
 
-            # Determine if subtree contains more than one founder ST
-            competing_founder = any(
-                founder_ST_to_IC_dict.get(st) not in (ic, None)
-                for st in sts_in_clade
-            )
-            
+            # Determine if subtree contains founder STs for a competing IC
+            competing_ics = {founder_ST_to_IC_dict[st] for st in sts_in_clade if st in founder_ST_to_IC_dict}
+            competing_founder = any(ic_ != ic for ic_ in competing_ics)
+            if competing_founder:
+                print(f"Warning: subtree contains founder STs for multiple ICs ({', '.join(competing_ics)}); recursing into child clades.")
+
             # Unclean if: too many Not IC isolates, OR a competing founder ST is present
             if len(clade_non_ic) <= not_ic_threshold and not competing_founder:
                 # Clean subclade — rescue if the correct founder ST is present
                 if any(founder_ST_to_IC_dict.get(st) == ic for st in sts_in_clade):
-                    # Only rescue STs that belong to this IC or are not founders
+                    # Rescue all STs except those which are founder STs for a different IC
                     rescued_sts.update(
                         st for st in sts_in_clade
                         if founder_ST_to_IC_dict.get(st, ic) == ic
